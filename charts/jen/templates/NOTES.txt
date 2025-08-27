@@ -1,0 +1,10 @@
+JEN API Gateway has been deployed.
+
+- Namespace: {{ .Release.Namespace }}
+- Service:   {{ include "jen.fullname" . }}-api
+- Access:    ClusterIP on port 80 (configure Ingress separately)
+
+Health:
+  kubectl -n {{ .Release.Namespace }} get deploy -l app.kubernetes.io/name=jen
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "jen.fullname" . }}-api
+
