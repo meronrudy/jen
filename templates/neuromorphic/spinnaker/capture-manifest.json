@@ -1,0 +1,10 @@
+{
+  "vendor": "Manchester",
+  "model": "SpiNNaker",
+  "deviceIds": [],
+  "firmware": "unknown",
+  "schedulerJobId": "",
+  "site": "UoM",
+  "capabilities": { "spikePrecision": "discrete", "supportedModels": ["LIF"], "determinism": "bounded" },
+  "context": { "clock": "site-ntp", "temperatureC": null, "topology": "" }
+}

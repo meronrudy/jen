@@ -1,0 +1,116 @@
+# JEN Egress Allowlist Policy
+# Status: Pilot defaults (tighten at Beta/GA per security roadmap)
+# Enforced via NetworkPolicy generation and/or egress proxy rules per namespace/job
+
+apiVersion: jen.dev/v1
+kind: EgressAllowlist
+metadata:
+  name: default-egress-allowlist
+spec:
+  scope:
+    appliesTo:
+      - triage-executions
+      - interactive-sessions
+      - workflow-jobs
+      - plugin-services
+  defaults:
+    action: deny
+    dnsResolution: cluster-dns
+    note: "All outbound traffic is denied unless explicitly allowed below."
+  allow:
+    # Scholarly resolvers and archival services
+    - host: doi.org
+      ports: [443]
+      purpose: "DOI resolution"
+    - host: api.datacite.org
+      ports: [443]
+      purpose: "DOI metadata resolution"
+    - host: zenodo.org
+      ports: [443]
+      purpose: "Artifact archival and dataset fetch"
+    - host: osf.io
+      ports: [443]
+      purpose: "Artifact archival and dataset fetch"
+
+    # Package registries (read-only, pinned by digest/version)
+    - host: pypi.org
+      ports: [443]
+      purpose: "Python package index"
+    - host: files.pythonhosted.org
+      ports: [443]
+      purpose: "Python package files"
+    - host: repo.anaconda.com
+      ports: [443]
+      purpose: "Conda packages"
+    - host: index.anaconda.com
+      ports: [443]
+      purpose: "Conda index"
+    - host: crates.io
+      ports: [443]
+      purpose: "Rust crates (if needed by plugins)"
+    - host: registry.npmjs.org
+      ports: [443]
+      purpose: "Node packages for tooling (plugins/SDK)"
+
+    # Container and plugin registries (pull-only; enforce digest pins)
+    - host: ghcr.io
+      ports: [443]
+      purpose: "GitHub Container Registry"
+    - host: gcr.io
+      ports: [443]
+      purpose: "Google Container Registry (read-only)"
+    - host: *.pkg.dev
+      ports: [443]
+      purpose: "GCP Artifact Registry"
+    - host: *.ecr.amazonaws.com
+      ports: [443]
+      purpose: "AWS ECR API"
+    - host: public.ecr.aws
+      ports: [443]
+      purpose: "AWS public ECR"
+    - host: quay.io
+      ports: [443]
+      purpose: "Quay container registry"
+
+    # Git code hosting (fetch by commit, shallow; prefer vendored tarballs)
+    - host: github.com
+      ports: [443]
+      purpose: "Source code fetch (pinned commits)"
+    - host: raw.githubusercontent.com
+      ports: [443]
+      purpose: "Pinned source files"
+    - host: gitlab.com
+      ports: [443]
+      purpose: "Source code fetch (pinned commits)"
+
+    # Cloud metadata/proxy blockers (deny by default, listed for clarity)
+    # No metadata endpoints allowed; enforced via network policies and blocklists.
+
+  perEnvironmentOverrides:
+    - environment: dev
+      additionalAllow:
+        - host: example.dev.internal
+          ports: [443]
+          purpose: "Dev-only integration testing"
+    - environment: staging
+      additionalAllow: []
+    - environment: prod
+      additionalAllow: []
+
+  annotations:
+    enforcement:
+      # Controller that materializes NetworkPolicy or proxy rules
+      controller: "jen-egress-controller/v1"
+    logging:
+      enabled: true
+      sampleRate: 0.25
+
+  exceptions:
+    # Temporary exception example; real exceptions tracked in separate CRD/DB with expiry.
+    - id: "EGRESS-EXAMPLE-001"
+      owner: "platform@example.org"
+      reason: "Time-limited dataset fetch from partner bucket"
+      hosts:
+        - partner-data.example.edu
+      ports: [443]
+      expiry: "2025-12-31T23:59:59Z"

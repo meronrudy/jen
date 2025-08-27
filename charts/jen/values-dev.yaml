@@ -1,0 +1,34 @@
+global:
+  environment: "dev"
+  objectStorage:
+    provider: "gcs"
+    bucket: "jen-dev-artifacts"
+    region: "us-central1"
+  ingress:
+    hosts:
+      - host: "jen-dev.example.org"
+        paths:
+          - path: /
+            pathType: Prefix
+  tls:
+    enabled: false
+
+identity:
+  oidc:
+    issuerUrl: "https://accounts.google.com"
+    clientId: "DEV_OIDC_CLIENT_ID"
+    clientSecretRef: "jen-oidc-client-secret"
+
+ojsAdapter:
+  endpoint: "https://ojs-dev.example.org/api"
+
+binderhub:
+  session:
+    cpu: "0.5"
+    memory: "1Gi"
+    maxDurationMinutes: 60
+
+archive:
+  zenodo:
+    sandbox: true
+    depositionTokenSecret: "zenodo-token"

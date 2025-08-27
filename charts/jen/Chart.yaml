@@ -1,0 +1,6 @@
+apiVersion: v2
+name: jen
+description: Journal of Executable Neuroscience (JEN) pilot chart
+type: application
+version: 0.1.0
+appVersion: 0.1.0

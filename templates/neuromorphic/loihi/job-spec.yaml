@@ -1,0 +1,17 @@
+apiVersion: jen.dev/hw/v1
+kind: NeuromorphicJob
+metadata:
+  name: example-loihi-job
+spec:
+  entrypoint: "python scripts/train.py --config params.toml"
+  resources:
+    accelerator:
+      type: Loihi
+      count: 1
+    timelimitMinutes: 30
+  inputs:
+    bundlePath: "."
+    configPath: "params.toml"
+  outputs:
+    paths:
+      - "runs/primary/**"

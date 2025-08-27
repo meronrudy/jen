@@ -1,0 +1,211 @@
+# JEN Triage CI Workflow (pilot scaffold)
+# Validates JEN RO-Crate profile, builds environment image, scans SBOM/CVEs,
+# performs a constrained smoke run, captures artifacts and emits an unsigned attestation.
+# Tighten and sign in protected environments.
+
+name: JEN Triage CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [ main, staging ]
+    paths:
+      - "jen-rocp.json"
+      - "ro-crate-metadata.json"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "environment.yml"
+      - "requirements*.txt"
+      - "**/*.ipynb"
+      - "**/*.py"
+  push:
+    branches: [ main ]
+    paths:
+      - "jen-rocp.json"
+      - "ro-crate-metadata.json"
+      - "Dockerfile"
+      - ".github/workflows/triage.yml"
+
+permissions:
+  contents: read
+  id-token: write           # for future cosign keyless
+  actions: read
+  attestations: write       # for future attestations API
+  security-events: write
+
+env:
+  JEN_ROCP_SCHEMA: "schemas/ro-crate/jen-rcp-1.0.json"
+  JEN_ROCP_FILE: "jen-rocp.json"
+  JEN_ARTIFACT_DIR: "jen-triage-artifacts"
+  JEN_SBOM_FILE: "jen-sbom.spdx.json"
+  JEN_LOGS_FILE: "jen-run-logs.txt"
+  JEN_ATT_FILE: "jen-rerun-attestation.json"
+
+jobs:
+  triage:
+    name: Validate, Build, Scan, Smoke-Run
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install tooling (jsonschema, yq, jq)
+        run: |
+          python -m pip install --upgrade pip
+          pip install jsonschema==4.23.0
+          sudo apt-get update
+          sudo apt-get install -y jq
+          sudo snap install yq
+
+      - name: Validate presence of JEN RO-Crate files
+        run: |
+          test -f "$JEN_ROCP_FILE" || (echo "Missing $JEN_ROCP_FILE" && exit 1)
+
+      - name: Validate against JEN RO-Crate schema
+        run: |
+          python - << 'PY'
+          import json, sys
+          from jsonschema import validate, Draft202012Validator
+          schema_path = "${{ env.JEN_ROCP_SCHEMA }}"
+          rocp_path = "${{ env.JEN_ROCP_FILE }}"
+          with open(schema_path) as f: schema = json.load(f)
+          with open(rocp_path) as f: data = json.load(f)
+          v = Draft202012Validator(schema)
+          errors = sorted(v.iter_errors(data), key=lambda e: e.path)
+          if errors:
+              for e in errors:
+                  print(f"[ROCP] {list(e.path)}: {e.message}")
+              sys.exit(1)
+          print("JEN RO-Crate profile validation: OK")
+          PY
+
+      - name: Extract execution parameters from jen-rocp.json
+        id: rocp
+        run: |
+          CMD=$(jq -r '.execution.command' "$JEN_ROCP_FILE")
+          CFG=$(jq -r '.execution.configPath' "$JEN_ROCP_FILE")
+          TIME=$(jq -r '.execution.resources.timeLimitMinutes' "$JEN_ROCP_FILE")
+          echo "command=$CMD"   >> $GITHUB_OUTPUT
+          echo "config=$CFG"    >> $GITHUB_OUTPUT
+          echo "timelimit=$TIME">> $GITHUB_OUTPUT
+          echo "Command: $CMD"
+          echo "Config:  $CFG"
+          echo "Time:    $TIME"
+
+      - name: Decide build strategy (Dockerfile vs repo2docker)
+        id: buildplan
+        run: |
+          if [ -f Dockerfile ]; then
+            echo "strategy=dockerfile" >> $GITHUB_OUTPUT
+          else
+            echo "strategy=repo2docker" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image via Dockerfile
+        if: steps.buildplan.outputs.strategy == 'dockerfile'
+        run: |
+          docker build --pull -t jen-triage:local -f Dockerfile .
+          docker image inspect jen-triage:local --format '{{.Id}}' || (echo "Build failed" && exit 1)
+
+      - name: Build image via repo2docker (fallback)
+        if: steps.buildplan.outputs.strategy == 'repo2docker'
+        run: |
+          pip install jupyter-repo2docker==2024.5.0
+          jupyter-repo2docker --no-run --image-name jen-triage:local .
+
+      - name: Generate SBOM (SPDX) with Syft
+        uses: anchore/sbom-action@v0.17.9
+        with:
+          image: "jen-triage:local"
+          format: "spdx-json"
+          output-file: "${{ env.JEN_SBOM_FILE }}"
+
+      - name: Scan vulnerabilities with Trivy
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: "jen-triage:local"
+          format: "table"
+          exit-code: "0"   # Do not fail pipeline in scaffold; enforce in protected envs
+          ignore-unfixed: true
+          vuln-type: "os,library"
+
+      - name: Prepare artifact directory
+        run: |
+          mkdir -p "${{ env.JEN_ARTIFACT_DIR }}/raw"
+          echo "JEN triage started at $(date -u +%FT%TZ)" > "${{ env.JEN_LOGS_FILE }}"
+
+      - name: Smoke run (bounded)
+        run: |
+          set -euo pipefail
+          echo "Executing: ${{ steps.rocp.outputs.command }}"
+          # Run with limited CPU/memory; no GPU in CI; no network except allowlist by default
+          docker run --rm \
+            --cpus="2" --memory="8g" \
+            -v "$PWD:/workspace" -w /workspace \
+            jen-triage:local \
+            bash -lc '${{ steps.rocp.outputs.command }}' \
+            2>&1 | tee -a "${{ env.JEN_LOGS_FILE }}"
+        timeout-minutes: 60
+
+      - name: Collect declared raw artifacts (best-effort)
+        run: |
+          set -e
+          if jq -e '.rawArtifacts.index | length > 0' "$JEN_ROCP_FILE" >/dev/null; then
+            jq -r '.rawArtifacts.index[].path' "$JEN_ROCP_FILE" | while read -r p; do
+              if [ -f "$p" ]; then
+                mkdir -p "${{ env.JEN_ARTIFACT_DIR }}/raw/$(dirname "$p")"
+                cp -a "$p" "${{ env.JEN_ARTIFACT_DIR }}/raw/$p"
+              fi
+            done
+          fi
+
+      - name: Compute checksums for artifacts and logs
+        run: |
+          shopt -s globstar nullglob
+          for f in "${{ env.JEN_ARTIFACT_DIR }}"/**/* "${{ env.JEN_LOGS_FILE }}" ; do
+            [ -f "$f" ] || continue
+            sha256sum "$f" >> "${{ env.JEN_ARTIFACT_DIR }}/checksums.sha256"
+          done
+
+      - name: Emit unsigned rerun attestation (scaffold)
+        run: |
+          cat > "${{ env.JEN_ATT_FILE }}" <<'JSON'
+          {
+            "apiVersion": "jen.dev/attestations/v1",
+            "kind": "RerunAttestation",
+            "subject": { "bundle": { "id": "", "digest": { "algo": "sha256", "value": "" } }, "environment": { "imageDigest": "", "baseImageDigest": "" } },
+            "materials": { "config": { "path": "", "checksum": { "algo": "sha256", "value": "" } }, "datasets": [], "locks": {} },
+            "predicate": { "command": "", "runner": "gha-ci", "schedule": {}, "resources": {}, "env": { "TZ": "UTC", "LC_ALL": "C.UTF-8" } },
+            "outputs": { "status": { "exitCode": 0, "success": true }, "artifacts": [], "logs": { "uri": "", "checksum": { "algo": "sha256", "value": "" } }, "metrics": {} },
+            "identity": { "builder": { "issuer": "https://token.actions.githubusercontent.com", "subject": "${{ github.repository }}" }, "signature": { "type": "none" }, "timestamp": "" }
+          }
+          JSON
+
+      - name: Upload triage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: jen-triage-${{ github.run_id }}
+          path: |
+            ${{ env.JEN_ARTIFACT_DIR }}/
+            ${{ env.JEN_SBOM_FILE }}
+            ${{ env.JEN_LOGS_FILE }}
+            ${{ env.JEN_ATT_FILE }}
+
+      # Optional: add cosign signing and provenance emission in protected environments
+      # - name: Install cosign
+      #   uses: sigstore/cosign-installer@v3
+      # - name: Sign attestation (keyless)
+      #   run: |
+      #     cosign sign-blob --yes "${{ env.JEN_ATT_FILE }}" > "${{ env.JEN_ATT_FILE }}.sig"

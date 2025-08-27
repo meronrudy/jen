@@ -1,0 +1,35 @@
+global:
+  environment: "staging"
+  objectStorage:
+    provider: "gcs"
+    bucket: "jen-staging-artifacts"
+    region: "us-central1"
+  ingress:
+    hosts:
+      - host: "jen-staging.example.org"
+        paths:
+          - path: /
+            pathType: Prefix
+  tls:
+    enabled: true
+    secretName: "jen-staging-tls"
+
+identity:
+  oidc:
+    issuerUrl: "https://accounts.google.com"
+    clientId: "STAGING_OIDC_CLIENT_ID"
+    clientSecretRef: "jen-oidc-client-secret"
+
+ojsAdapter:
+  endpoint: "https://ojs.example.org/api"
+
+binderhub:
+  session:
+    cpu: "1"
+    memory: "2Gi"
+    maxDurationMinutes: 120
+
+archive:
+  zenodo:
+    sandbox: true
+    depositionTokenSecret: "zenodo-token"

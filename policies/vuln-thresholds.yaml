@@ -1,0 +1,87 @@
+# JEN Vulnerability Thresholds Policy
+# Status: Pilot defaults (tighten at Beta/GA per security roadmap)
+# Applied by admission/gatekeeper or CI policy checks
+
+apiVersion: jen.dev/v1
+kind: VulnerabilityThresholds
+metadata:
+  name: default-vuln-thresholds
+spec:
+  scope:
+    appliesTo:
+      - core-images         # platform services
+      - plugin-images       # executors, adapters, prechecks
+      - execution-images    # author-provided environments
+  thresholds:
+    # Block if CRITICAL vulns present without an approved, time-bounded waiver
+    CRITICAL:
+      action: block
+      allowWithWaiver: true
+      waiver:
+        requiredFields: ["owner", "riskAssessment", "compensatingControls", "expiry"]
+        maxDurationDays: 30
+    # HIGH allowed only with waiver during Pilot; block by default at Beta
+    HIGH:
+      action: allow
+      allowWithWaiver: true
+      waiver:
+        requiredFields: ["owner", "riskAssessment", "compensatingControls", "expiry"]
+        maxDurationDays: 60
+      roadmap:
+        betaAction: block
+        gaAction: block
+    # MEDIUM and LOW logged; consider block for core images at GA
+    MEDIUM:
+      action: log
+      roadmap:
+        gaCoreImagesAction: block
+    LOW:
+      action: log
+    UNKNOWN:
+      action: log
+
+  scanners:
+    preferred:
+      - trivy
+      - grype
+    minDbUpdatedWithinHours: 24
+
+  scopeOverrides:
+    # Core platform images stricter by one level
+    - match: core-images
+      override:
+        HIGH:
+          action: block
+          allowWithWaiver: true
+          waiver:
+            requiredFields: ["owner", "riskAssessment", "compensatingControls", "expiry"]
+            maxDurationDays: 14
+        MEDIUM:
+          action: log
+          roadmap:
+            gaAction: block
+
+  reporting:
+    createAdvisoryOnPublishedFindings:
+      critical: true
+      high: true
+    notify:
+      channels:
+        - sec-oncall
+        - platform-oncall
+      sla:
+        advisoryWithinHours:
+          critical: 72
+          high: 120
+
+  exceptions:
+    # Example structure; real waivers tracked in a separate CRD/DB
+    - id: "WAIVER-EXAMPLE-001"
+      artifactRef: "ghcr.io/jen/example@sha256:deadbeef..."
+      severity: "HIGH"
+      owner: "security@example.org"
+      riskAssessment: "Not reachable in runtime; library disabled by policy"
+      compensatingControls:
+        - "Network egress blocked to affected vector"
+        - "Non-root, seccomp/app-armor enforced"
+      expiry: "2025-12-31T23:59:59Z"

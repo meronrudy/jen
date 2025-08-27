@@ -1,0 +1,405 @@
+# JEN Helm Chart - values.yaml (pilot baseline)
+# Purpose: Configure core services, adapters, security policies, and environment profiles.
+
+global:
+  environment: "staging"
+  image:
+    registry: "ghcr.io/jen"
+    pullPolicy: IfNotPresent
+  security:
+    vulnPolicyRef: "policies/default-vuln-thresholds"
+    egressPolicyRef: "policies/default-egress-allowlist"
+    requireImageSignatures: true
+  objectStorage:
+    # Select one: s3 or gcs
+    provider: "gcs"
+    bucket: "jen-staging-artifacts"
+    # For S3:
+    # endpoint: "s3.amazonaws.com"
+    # For GCS, leave endpoint empty; use workload identity or adc
+    endpoint: ""
+    region: "us-central1"
+    pathStyle: false
+  registry:
+    # For execution and plugin images
+    url: "us-central1-docker.pkg.dev/jen-staging/registry"
+  archive:
+    # Archival target for accepted bundles
+    provider: "zenodo"
+    sandbox: true
+  ingress:
+    className: "nginx"
+    hosts:
+      - host: "jen-staging.example.org"
+        paths:
+          - path: /
+            pathType: Prefix
+  tls:
+    enabled: true
+    secretName: "jen-staging-tls"
+
+rbac:
+  create: true
+
+networkPolicy:
+  enabled: true
+  defaultDenyAll: true
+
+podSecurity:
+  enabled: true
+  standard: "restricted"
+
+# -------------------------------------------------------------------
+# Identity and Access
+# -------------------------------------------------------------------
+identity:
+  oidc:
+    enabled: true
+    issuerUrl: "https://accounts.google.com"
+    clientId: "jen-staging-client-id"
+    clientSecretRef: "jen-oidc-client-secret"
+    redirectUrl: "https://jen-staging.example.org/oauth/callback"
+  orcid:
+    enabled: true
+    clientId: "ORCID-CLIENT-ID"
+    clientSecretRef: "jen-orcid-client-secret"
+
+serviceAccounts:
+  create: true
+  names:
+    api: "jen-api"
+    executor: "jen-executor"
+    broker: "jen-broker"
+    plugins: "jen-plugins"
+
+secrets:
+  # Reference external secret managers or K8s secrets
+  storageCredentialsSecret: "jen-storage-credentials"
+  registryCredentialsSecret: "jen-registry-credentials"
+
+# -------------------------------------------------------------------
+# Core Services
+# -------------------------------------------------------------------
+apiGateway:
+  enabled: true
+  image: "ghcr.io/jen/api-gateway:0.1.0"
+  replicas: 2
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "256Mi"
+    limits:
+      cpu: "1"
+      memory: "512Mi"
+  service:
+    type: ClusterIP
+    port: 8080
+
+eventBus:
+  enabled: true
+  type: "nats"
+  nats:
+    image: "nats:2.10"
+    replicas: 1
+    persistence:
+      enabled: false
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "256Mi"
+
+provenance:
+  enabled: true
+  db:
+    type: "postgresql"
+    image: "postgres:16"
+    persistence:
+      enabled: true
+      size: "20Gi"
+    auth:
+      existingSecret: "jen-provenance-db"
+  service:
+    port: 5432
+
+auditLog:
+  enabled: true
+  backend: "elasticsearch"
+  elasticsearch:
+    image: "docker.elastic.co/elasticsearch/elasticsearch:8.14.0"
+    replicas: 1
+    persistence:
+      enabled: true
+      size: "20Gi"
+    resources:
+      requests:
+        cpu: "200m"
+        memory: "1Gi"
+      limits:
+        cpu: "1"
+        memory: "2Gi"
+
+searchIndex:
+  enabled: true
+  engine: "opensearch"
+  opensearch:
+    image: "opensearchproject/opensearch:2.14.0"
+    replicas: 1
+    persistence:
+      enabled: true
+      size: "20Gi"
+
+# -------------------------------------------------------------------
+# Execution Stack
+# -------------------------------------------------------------------
+binderhub:
+  enabled: true
+  repo2docker:
+    image: "jupyter/repo2docker:2024.05.0"
+    # CVE scans and digest pinning enforced by admission controller
+  jupyterhub:
+    image: "jupyterhub/k8s-hub:4.0.0"
+    auth:
+      type: "generic-oauth"
+      oauthCallbackUrl: "https://jen-staging.example.org/hub/oauth_callback"
+    cull:
+      enabled: true
+      timeout: 1800
+  cache:
+    enabled: true
+    pvcSize: "100Gi"
+  session:
+    cpu: "1"
+    memory: "2Gi"
+    gpu:
+      enabled: false
+      count: 0
+    maxDurationMinutes: 120
+    idleTimeoutSeconds: 1800
+  egressPolicyRef: "policies/default-egress-allowlist"
+
+executor:
+  enabled: true
+  image: "ghcr.io/jen/executor:0.1.0"
+  batch:
+    defaultResources:
+      cpu: "2"
+      memory: "8Gi"
+      timeLimitMinutes: 60
+      gpu:
+        enabled: false
+        count: 0
+    workflowEngines:
+      cwl:
+        enabled: true
+        image: "ghcr.io/jen/executor-cwl:0.1.0"
+      nextflow:
+        enabled: true
+        image: "ghcr.io/jen/executor-nextflow:0.1.0"
+
+hardwareBroker:
+  enabled: true
+  image: "ghcr.io/jen/hardware-broker:0.1.0"
+  quotas:
+    user:
+      concurrentJobs: 2
+      monthlyCpuHours: 200
+      monthlyGpuHours: 20
+    project:
+      concurrentJobs: 10
+      monthlyCpuHours: 1000
+      monthlyGpuHours: 100
+  backpressure:
+    queueHighWatermark: 100
+    rejectNewJobs: true
+
+adapters:
+  slurm:
+    enabled: true
+    image: "ghcr.io/jen/adapter-slurm:0.1.0"
+    endpoint: "slurm.example.edu"
+    partition: "jen"
+    containerRuntime: "apptainer"
+    scratchPath: "/scratch/jen"
+  loihi:
+    enabled: true
+    image: "ghcr.io/jen/adapter-loihi:0.1.0"
+    endpoint: "https://inrc.intel.com/api"
+    authSecret: "loihi-gateway-credentials"
+    retry:
+      attempts: 3
+      backoffSeconds: 30
+  spinnaker:
+    enabled: true
+    image: "ghcr.io/jen/adapter-spinnaker:0.1.0"
+    endpoint: "https://spinnaker.manchester.ac.uk/api"
+    authSecret: "spinnaker-credentials"
+
+storage:
+  artifacts:
+    provider: "{{ .Values.global.objectStorage.provider }}"
+    bucket: "{{ .Values.global.objectStorage.bucket }}"
+    region: "{{ .Values.global.objectStorage.region }}"
+    endpoint: "{{ .Values.global.objectStorage.endpoint }}"
+    pathStyle: "{{ .Values.global.objectStorage.pathStyle }}"
+  registry:
+    url: "{{ .Values.global.registry.url }}"
+    credentialsSecret: "{{ .Values.secrets.registryCredentialsSecret }}"
+
+archive:
+  zenodo:
+    enabled: true
+    sandbox: true
+    depositionTokenSecret: "zenodo-token"
+  osf:
+    enabled: false
+
+# -------------------------------------------------------------------
+# Editorial Integration
+# -------------------------------------------------------------------
+ojsAdapter:
+  enabled: true
+  image: "ghcr.io/jen/adapter-ojs:0.1.0"
+  endpoint: "https://ojs.example.org/api"
+  webhookSecret: "jen-ojs-webhook-secret"
+  triage:
+    enableAutoTriage: true
+    resourceProfile:
+      cpu: "2"
+      memory: "8Gi"
+      timeLimitMinutes: 60
+
+reviewWorkbench:
+  enabled: true
+  image: "ghcr.io/jen/reviewer-workbench:0.1.0"
+  features:
+    figureRegen: true
+    paramSweeps: true
+    toleranceChecks: true
+
+# -------------------------------------------------------------------
+# Provenance, Attestation, and Policies
+# -------------------------------------------------------------------
+provenanceReporter:
+  enabled: true
+  image: "ghcr.io/jen/provenance-reporter:0.1.0"
+  roCrate:
+    schemaRef: "https://jen.dev/schemas/ro-crate/jen-rcp-1.0.json"
+  attestations:
+    enabled: true
+    cosign:
+      keyless: true
+      transparencyLog: "rekor.sigstore.dev"
+
+policies:
+  egressAllowlistRef: "{{ .Values.global.security.egressPolicyRef }}"
+  vulnThresholdsRef: "{{ .Values.global.security.vulnPolicyRef }}"
+
+# -------------------------------------------------------------------
+# Observability and Operations
+# -------------------------------------------------------------------
+observability:
+  otel:
+    enabled: true
+    collectorImage: "otel/opentelemetry-collector:0.103.1"
+    exporters:
+      otlp:
+        endpoint: "otel-collector:4317"
+  metrics:
+    prometheus:
+      enabled: true
+      scrapeInterval: "30s"
+  logs:
+    loki:
+      enabled: true
+      image: "grafana/loki:2.9.8"
+      persistence:
+        enabled: true
+        size: "20Gi"
+  dashboards:
+    grafana:
+      enabled: true
+      image: "grafana/grafana:10.4.3"
+      adminPasswordSecret: "grafana-admin"
+
+# -------------------------------------------------------------------
+# Security Baselines
+# -------------------------------------------------------------------
+admission:
+  imageSignatureVerification:
+    enabled: true
+    provider: "cosign"
+  sbomGate:
+    enabled: true
+    formats:
+      - "SPDX-2.3"
+      - "CycloneDX-1.5"
+  podSecurity:
+    level: "restricted"
+
+network:
+  egressController:
+    enabled: true
+    image: "ghcr.io/jen/egress-controller:0.1.0"
+
+# -------------------------------------------------------------------
+# Resource Quotas and Limits
+# -------------------------------------------------------------------
+quotas:
+  namespaces:
+    default:
+      limits:
+        cpu: "8"
+        memory: "32Gi"
+      requests:
+        cpu: "4"
+        memory: "16Gi"
+    binderhub:
+      limits:
+        cpu: "32"
+        memory: "128Gi"
+      requests:
+        cpu: "8"
+        memory: "32Gi"
+
+# -------------------------------------------------------------------
+# Profiles per environment (override in your env values files)
+# -------------------------------------------------------------------
+profiles:
+  dev:
+    global:
+      environment: "dev"
+      objectStorage:
+        bucket: "jen-dev-artifacts"
+        region: "us-central1"
+    binderhub:
+      session:
+        cpu: "0.5"
+        memory: "1Gi"
+        maxDurationMinutes: 60
+    executor:
+      batch:
+        defaultResources:
+          cpu: "1"
+          memory: "4Gi"
+          timeLimitMinutes: 30
+
+  prod:
+    global:
+      environment: "prod"
+      objectStorage:
+        bucket: "jen-prod-artifacts"
+        region: "us-central1"
+    binderhub:
+      session:
+        cpu: "2"
+        memory: "4Gi"
+        maxDurationMinutes: 240
+    executor:
+      batch:
+        defaultResources:
+          cpu: "4"
+          memory: "16Gi"
+          timeLimitMinutes: 120

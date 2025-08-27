@@ -1,0 +1,71 @@
+{
+  "schemaVersion": "JEN-ROCP-1.0",
+  "bundle": {
+    "title": "Replace with your article title",
+    "abstract": "Short abstract of the work and key claims.",
+    "version": "0.1.0",
+    "keywords": ["snn", "template"],
+    "license": "CC-BY-4.0",
+    "contributors": [
+      { "name": "Your Name", "orcid": "https://orcid.org/0000-0000-0000-000X", "affiliation": "Your Org", "role": "Author" }
+    ],
+    "digest": { "algo": "sha256", "value": "<fill-after-archive>" },
+    "created": "2025-08-27T00:00:00Z"
+  },
+  "configuration": {
+    "primary": "params.toml",
+    "files": [
+      {
+        "path": "params.toml",
+        "seeds": { "numpy": 42 },
+        "hyperparameters": { "learning_rate": 0.01, "epochs": 1 },
+        "datasets": ["example-ds"]
+      }
+    ]
+  },
+  "data": {
+    "sources": [
+      {
+        "id": "example-ds",
+        "type": "embedded",
+        "access": { "uri": "data/example", "license": "CC0-1.0" },
+        "integrity": { "algo": "sha256", "value": "0000000000000000000000000000000000000000000000000000000000000000" },
+        "sizeBytes": 0
+      }
+    ]
+  },
+  "environment": {
+    "dockerfilePath": "Dockerfile",
+    "imageDigest": "sha256:<fill-with-built-digest>",
+    "baseImage": { "name": "python:3.11-slim@sha256:<pin-digest>", "digest": "sha256:<pin-digest>" },
+    "locks": { "pip": "requirements.lock" },
+    "sbom": { "format": "SPDX-2.3", "path": "jen-sbom.spdx.json" }
+  },
+  "rawArtifacts": {
+    "index": [
+      { "path": "runs/primary/metrics.json", "checksum": { "algo": "sha256", "value": "PLACEHOLDER" }, "mimeType": "application/json", "description": "Runtime metrics" },
+      { "path": "runs/primary/example.txt", "checksum": { "algo": "sha256", "value": "PLACEHOLDER" }, "mimeType": "text/plain", "description": "Example artifact" }
+    ]
+  },
+  "visualization": {
+    "figures": [
+      { "id": "fig1", "script": "scripts/viz.py", "inputs": ["runs/primary/metrics.json"], "output": "figures/figure1.txt", "params": {} }
+    ]
+  },
+  "execution": {
+    "command": "python scripts/train.py --config params.toml",
+    "configPath": "params.toml",
+    "resources": { "cpu": 1, "memoryGB": 1, "timeLimitMinutes": 10 },
+    "expectedExitCode": 0
+  },
+  "provenance": {
+    "attestations": []
+  },
+  "identifiers": { "bundleDOI": "10.0000/placeholder" },
+  "compliance": {
+    "codeLicense": "Apache-2.0",
+    "dataLicense": "CC0-1.0",
+    "exportControl": { "flag": false },
+    "ethics": { "humanSubjects": false, "animalSubjects": false }
+  }
+}

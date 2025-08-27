@@ -1,0 +1,10 @@
+{
+  "vendor": "Intel",
+  "model": "Loihi-2",
+  "deviceIds": [],
+  "firmware": "unknown",
+  "schedulerJobId": "",
+  "site": "INRC-Cloud",
+  "capabilities": { "spikePrecision": "time-binned", "supportedModels": ["LIF"], "determinism": "bounded" },
+  "context": { "clock": "site-ntp", "temperatureC": null, "topology": "" }
+}

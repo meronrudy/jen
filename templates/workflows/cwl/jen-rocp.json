@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "JEN-ROCP-1.0",
+  "bundle": {
+    "title": "CWL Workflow Example",
+    "abstract": "Minimal CWL example.",
+    "version": "0.1.0",
+    "keywords": ["cwl","workflow"],
+    "license": "CC-BY-4.0",
+    "contributors": [{ "name": "Your Name" }],
+    "digest": { "algo": "sha256", "value": "<fill>" },
+    "created": "2025-08-27T00:00:00Z"
+  },
+  "configuration": { "primary": "job.yaml", "files": [ { "path": "job.yaml" } ] },
+  "data": { "sources": [] },
+  "environment": {
+    "dockerfilePath": "Dockerfile",
+    "imageDigest": "sha256:<fill>",
+    "baseImage": { "name": "python:3.11-slim@sha256:<pin>", "digest": "sha256:<pin>" },
+    "locks": { "pip": "requirements.lock" },
+    "sbom": { "format": "SPDX-2.3", "path": "jen-sbom.spdx.json" }
+  },
+  "rawArtifacts": { "index": [ { "path": "runs/primary/message.txt", "checksum": { "algo": "sha256", "value": "PLACEHOLDER" }, "mimeType": "text/plain" } ] },
+  "visualization": { "figures": [] },
+  "execution": {
+    "command": "cwltool workflows/cwl/workflow.cwl workflows/cwl/job.yaml",
+    "configPath": "workflows/cwl/job.yaml",
+    "resources": { "cpu": 1, "memoryGB": 1, "timeLimitMinutes": 10 },
+    "expectedExitCode": 0
+  },
+  "provenance": { "attestations": [] },
+  "identifiers": { "bundleDOI": "10.0000/placeholder" },
+  "compliance": {
+    "codeLicense": "Apache-2.0", "dataLicense": "CC0-1.0",
+    "exportControl": { "flag": false }, "ethics": {}
+  }
+}

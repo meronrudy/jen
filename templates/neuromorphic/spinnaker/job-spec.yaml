@@ -1,0 +1,17 @@
+apiVersion: jen.dev/hw/v1
+kind: NeuromorphicJob
+metadata:
+  name: example-spinnaker-job
+spec:
+  entrypoint: "python scripts/train.py --config params.toml"
+  resources:
+    accelerator:
+      type: SpiNNaker
+      count: 1
+    timelimitMinutes: 30
+  inputs:
+    bundlePath: "."
+    configPath: "params.toml"
+  outputs:
+    paths:
+      - "runs/primary/**"
